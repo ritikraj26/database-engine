@@ -104,18 +104,25 @@ vector<string> get_columns_from_sql(string sql)
     vector<string> tokens = tokenize(sql.substr(st_pos + 1, en_pos - st_pos - 1), ",");
     for (auto token : tokens)
     {
-        vector<string> curr_colum = tokenize(token, " ");
-        string x = curr_colum[0];
-        x.erase(remove(x.begin(), x.end(), '\n'), x.end());
-        x.erase(remove(x.begin(), x.end(), '\t'), x.end());
-        columns.push_back(x);
+        vector<string> curr_column = tokenize(token, " ");
+        for (string x : curr_column)
+        {
+            x.erase(remove(x.begin(), x.end(), ' '), x.end());
+            x.erase(remove(x.begin(), x.end(), '\n'), x.end());
+            x.erase(remove(x.begin(), x.end(), '\t'), x.end());
+            if (x.size() > 0)
+            {
+                columns.push_back(x);
+                break;
+            }
+        }
     }
     return columns;
 }
 string get_lowercase(string data)
 {
     transform(data.begin(), data.end(), data.begin(), [](unsigned char c)
-              { return std::tolower(c); });
+      { return std::tolower(c); });
     return data;
 }
 
@@ -205,23 +212,26 @@ public:
         return 0;
     }
 
-    void query_all_rows(string table, string column)
+    void query_all_rows(string table, vector<string> query_columns)
     {
         for (auto row : master_table_rows)
         {
             if (row.name == table)
             {
-                vector<string> cols = get_columns_from_sql(row.sql);
-                int col_pos = -1;
-                for (int i = 0; i < cols.size(); i++)
+                vector<string> table_columns = get_columns_from_sql(row.sql);
+                vector<int> query_column_positions;
+                for (int i = 0; i < query_columns.size(); i++)
                 {
-                    if (get_lowercase(cols[i]) == get_lowercase(column))
+                    for (int j = 0; j < table_columns.size(); j++)
                     {
-                        col_pos = i;
-                        break;
+                        if (get_lowercase(query_columns[i]) == get_lowercase(table_columns[j]))
+                        {
+                            query_column_positions.push_back(j);
+                            break;
+                        }
                     }
                 }
-                assert(col_pos != -1);
+                assert(query_column_positions.size() == query_columns.size());
                 int offset = (row.root_page - 1) * this->page_size;
                 this->stream.seekg(offset);
                 int page_type = big_endian(this->stream, 1);
@@ -235,8 +245,20 @@ public:
                     this->stream.seekg(offset + curr_cell_location);
                     parse_varint(this->stream);
                     parse_varint(this->stream);
-                    std::vector<std::string> row = parse_record(this->stream, cols.size());
-                    cout << row[col_pos] << endl;
+                    
+                    std::vector<std::string> row = parse_record(this->stream, table_columns.size());
+                    for (int j = 0; j < query_column_positions.size(); j++)
+                    {
+                        if (j == 0)
+                        {
+                            cout << row[query_column_positions[j]];
+                        }
+                        else
+                        {
+                            cout << "|" << row[query_column_positions[j]];
+                        }
+                    }
+                    cout << endl;
                 }
                 break;
             }
@@ -274,28 +296,32 @@ int main(int argc, char *argv[])
     }
     else
     {
-        string delimiter = " ";
-        size_t pos = 0;
-        string token;
-        vector<string> tokens;
-        while ((pos = command.find(delimiter)) != string::npos)
-        {
-            token = command.substr(0, pos);
-            tokens.push_back(token);
-            command.erase(0, pos + delimiter.length());
-        }
-        if (command.size() > 0)
-        {
-            tokens.push_back(command);
-        }
-        if (tokens[1].rfind("COUNT") != string::npos || tokens[1].rfind("count") != string::npos)
+        vector<string> tokens = tokenize(command, " ");
+
+        if (command.rfind("COUNT") != string::npos || command.rfind("count") != string::npos)
         {
             string table_to_query = tokens.back();
             cout << db.get_table_rows_count(table_to_query) << endl;
         }
         else
         {
-            db.query_all_rows(tokens.back(), tokens[1]);
+            vector<string> columns;
+            for (int i = 1; i < tokens.size(); i++)
+            {
+                if (get_lowercase(tokens[i]) == "from")
+                {
+                    break;
+                }
+                if (tokens[i].back() == ',')
+                {
+                    columns.push_back(tokens[i].substr(0, tokens[i].size() - 1));
+                }
+                else
+                {
+                    columns.push_back(tokens[i]);
+                }
+            }
+            db.query_all_rows(tokens.back(), columns);
         }
     }
     return 0;
