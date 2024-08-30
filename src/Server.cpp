@@ -212,7 +212,7 @@ public:
         return 0;
     }
 
-    void query_all_rows(string table, vector<string> query_columns)
+    void query_all_rows(string table, vector<string> query_columns, string condition_column, string condition_value)
     {
         for (auto row : master_table_rows)
         {
@@ -231,6 +231,19 @@ public:
                         }
                     }
                 }
+
+                int condition_column_position = -1;
+                if(condition_column.size() > 0){
+                    for (int j = 0; j < table_columns.size(); j++)
+                    {
+                        if (get_lowercase(condition_column) == get_lowercase(table_columns[j]))
+                        {
+                            condition_column_position = j;
+                            break;
+                        }
+                    }
+                }
+
                 assert(query_column_positions.size() == query_columns.size());
                 int offset = (row.root_page - 1) * this->page_size;
                 this->stream.seekg(offset);
@@ -247,6 +260,11 @@ public:
                     parse_varint(this->stream);
                     
                     std::vector<std::string> row = parse_record(this->stream, table_columns.size());
+
+                    if(condition_column_position != -1 && row[condition_column_position] != condition_value){
+                        continue;
+                    }
+
                     for (int j = 0; j < query_column_positions.size(); j++)
                     {
                         if (j == 0)
@@ -305,23 +323,34 @@ int main(int argc, char *argv[])
         }
         else
         {
-            vector<string> columns;
+            bool is_query_coulmn_end = false;
+            vector<string> query_columns;
+            string query_table = "";
+            string condition_column = "", condition_value = "";
             for (int i = 1; i < tokens.size(); i++)
             {
-                if (get_lowercase(tokens[i]) == "from")
-                {
+                if(get_lowercase(tokens[i]) == "where"){
+                    condition_column = tokens[i+1];
+                    condition_value = tokens[i+3].substr(1, tokens[i+3].size()-2);
                     break;
                 }
-                if (tokens[i].back() == ',')
-                {
-                    columns.push_back(tokens[i].substr(0, tokens[i].size() - 1));
+                if (get_lowercase(tokens[i]) == "from"){
+                    is_query_coulmn_end = true;
+                    query_table = tokens[i+1];
+                    i++;
                 }
-                else
-                {
-                    columns.push_back(tokens[i]);
+
+                if (!is_query_coulmn_end){
+                    if (tokens[i].back() == ',')
+                    {
+                        query_columns.push_back(tokens[i].substr(0, tokens[i].size() - 1));
+                    }
+                    else{
+                        query_columns.push_back(tokens[i]);
+                    }
                 }
             }
-            db.query_all_rows(tokens.back(), columns);
+            db.query_all_rows(query_table, query_columns, condition_column, condition_value);
         }
     }
     return 0;
